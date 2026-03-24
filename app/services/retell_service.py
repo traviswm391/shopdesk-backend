@@ -25,7 +25,7 @@ Your job: 1. Greet warmly 2. Understand service needed 3. Collect: name, phone, 
 Hours: {', '.join(hours_lines)}
 Services: {services_str}
 Rules: Be friendly and concise. If asked price, say team provides quote. Afwer hours: take info, say we'll call back next business day.
-Greet: "{greeting}""""
+Greet: "{greeting}"""
 
 def create_agent(shop, webhook_url):
     prompt = build_agent_prompt(shop)
