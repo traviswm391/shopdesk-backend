@@ -75,30 +75,29 @@ async def stripe_webhook(request: Request):
     elif t == "customer.subscription.updated":
         supabase.table("shops").update({"subscription_status":d.get("status")}).eq("stripe_subscription_id",d.get("id")).execute()
 
-    @router.post("/clerk")
-    async def clerk_webhook(request: Request):
-            from svix.webhooks import Webhook, WebhookVerificationError
-            from app.config import settings
-            payload = await request.body()
-            headers = dict(request.headers)
-            try:
-                        wh = Webhook(settings.clerk_webhook_secret)
-                        evt = wh.verify(payload, headers)
-            except WebhookVerificationError:
-                        raise HTTPException(status_code=400, detail="Invalid webhook signature")
-                    event_type = evt.get("type")
-            data = evt.get("data", {})
-            if event_type in ("user.created", "user.updated"):
-                        clerk_user_id = data.get("id")
-                        email = ""
-                        email_addresses = data.get("email_addresses", [])
-                        if email_addresses:
-                                        email = email_addresses[0].get("email_address", "")
-                                    if clerk_user_id:
-                                                    supabase.table("shops").upsert(
-                                                                        {"clerk_user_id": clerk_user_id, "email": email, "name": email},
-                                                                        on_conflict="clerk_user_id"
-                                                    ).execute()
-                                                    logger.info(f"Upserted shop for clerk_user_id={clerk_user_id}")
-                                            return {"status": "ok"}
+@router.post("/clerk")
+async def clerk_webhook(request: Request):
+    from svix.webhooks import Webhook, WebhookVerificationError
+    from app.config import settings
+    payload = await request.body()
+    headers = dict(request.headers)
+    try:
+        wh = Webhook(settings.clerk_webhook_secret)
+        evt = wh.verify(payload, headers)
+    except WebhookVerificationError:
+        raise HTTPException(status_code=400, detail="Invalid webhook signature")
+    event_type = evt.get("type")
+    data = evt.get("data", {})
+    if event_type in ("user.created", "user.updated"):
+        clerk_user_id = data.get("id")
+        email = ""
+        email_addresses = data.get("email_addresses", [])
+        if email_addresses:
+            email = email_addresses[0].get("email_address", "")
+        if clerk_user_id:
+            supabase.table("shops").upsert(
+                {"clerk_user_id": clerk_user_id, "email": email, "name": email},
+                on_conflict="clerk_user_id"
+            ).execute()
+            logger.info(f"Upserted shop for clerk_user_id={clerk_user_id}")
     return {"status": "ok"}
