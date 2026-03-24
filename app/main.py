@@ -15,6 +15,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://shopdesk-ai.vercel.app",
+        "https://shopdesk-frontend.vercel.app",
         "http://localhost:3000"
     ],
     allow_credentials=True,
