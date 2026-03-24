@@ -19,7 +19,7 @@ async def call_stats(x_clerk_user_id: str = Header(...)):
     shop = get_shop_by_owner(x_clerk_user_id)
     if not shop: raise HTTPException(status_code=404,detail="Shop not found")
     calls = supabase.table("calls").select("status,appointment_booked,duration_seconds").eq("shop_id",shop["id"]).execute()
-    t = len(calls.data); a = sum(1 for c in calls.data if c.get("appointment_booked")); avg = sum(c.get("duration_seconds",0) for c in calls.data)/t if t welse 0
+    t = len(calls.data); a = sum(1 for c in calls.data if c.get("appointment_booked")); avg = sum(c.get("duration_seconds",0) for c in calls.data)/t if t else 0
     return {"total_calls":t,"appointments_booked":a,"conversion_rate":round(a/t*100,1) if t else 0,"avg_duration_seconds":round(avg)}
 
 @router.get("/{call_id}")
