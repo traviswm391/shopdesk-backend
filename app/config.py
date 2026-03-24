@@ -9,8 +9,10 @@ class Settings(BaseSettings):
     twilio_auth_token: str
     stripe_secret_key: str
     stripe_webhook_secret: str = ""
+    stripe_price_id: str = ""
     clerk_secret_key: str
-    app_url: str = "https://shopdesk-ai.vercel.app"
+    clerk_webhook_secret: str = ""
+    app_url: str = "https://shopdesk-frontend.vercel.app"
 
     class Config:
         env_file = ".env"
