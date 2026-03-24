@@ -10,3 +10,4 @@ requests==2.32.3
 python-dotenv==1.0.1
 python-multipart==0.0.20
 httpx==0.28.1
+svix==1.24.0
