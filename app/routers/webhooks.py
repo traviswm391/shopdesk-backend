@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
-@router.get("/svix-portal")
+@router.get("/svix-portal"
 async def get_svix_portal():
     """Temporary: calls Clerk API to get Svix portal URL and redirects."""
     import httpx
@@ -25,7 +25,7 @@ async def get_svix_portal():
         if resp.status_code != 200:
             raise HTTPException(status_code=502, detail=f"Clerk API error: {resp.text}")
         data = resp.json()
-        url = data.get("url", "")
+        url = data.get("svix_url", "") or data.get("url", "")
         if not url:
             raise HTTPException(status_code=502, detail=f"No URL in response: {data}")
         return RedirectResponse(url=url)
