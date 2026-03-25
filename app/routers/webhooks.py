@@ -9,7 +9,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 
-@router.get("/svix-portal)
+@router.get("/svix-portal")
 async def get_svix_portal():
     """Temporary: calls Clerk API to get Svix portal URL and redirects."""
     import httpx
