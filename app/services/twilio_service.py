@@ -7,6 +7,12 @@ logger = logging.getLogger(__name__)
 client = Client(settings.twilio_account_sid, settings.twilio_auth_token)
 
 def provision_phone_number(area_code="415"):
+    # Reuse existing number if one exists (handles trial account limits)
+    existing = client.incoming_phone_numbers.list(limit=1)
+    if existing:
+        logger.info(f"Reusing existing Twilio number: {existing[0].phone_number}")
+        return existing[0].phone_number
+    # Buy a new number
     available = client.available_phone_numbers("US").local.list(area_code=area_code, sms_enabled=True, voice_enabled=True, limit=1)
     if not available:
         available = client.available_phone_numbers("US").local.list(sms_enabled=True, voice_enabled=True, limit=1)
@@ -28,7 +34,3 @@ def send_sms(to, from_, body):
     except TwilioRestException as e:
         logger.error(f"SMS failed: {e}")
         raise
-
-def release_phone_number(phone_number):
-    for n in client.incoming_phone_numbers.list(phone_number=phone_number):
-        n.delete()
