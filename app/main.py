@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.routers import shops, calls, webhooks
+from app.routers import shops, calls, webhooks, admin
 import logging
 
 logging.basicConfig(level=logging.INFO)
@@ -15,7 +15,6 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://shopdesk-ai.vercel.app",
-        "https://shopdesk-frontend.vercel.app",
         "http://localhost:3000"
     ],
     allow_credentials=True,
@@ -26,6 +25,7 @@ app.add_middleware(
 app.include_router(shops.router)
 app.include_router(calls.router)
 app.include_router(webhooks.router)
+app.include_router(admin.router)
 
 
 @app.get("/")
