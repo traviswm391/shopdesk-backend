@@ -6,11 +6,14 @@ from app.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
+
 router = APIRouter(prefix="/api/shops", tags=["shops"])
+
 
 def get_shop_by_owner(owner_id):
     r = supabase.table("shops").select("*").eq("clerk_user_id", owner_id).execute()
     return r.data[0] if r.data else None
+
 
 @router.get("/me")
 async def get_my_shop(x_clerk_user_id: str = Header(...)):
@@ -18,6 +21,7 @@ async def get_my_shop(x_clerk_user_id: str = Header(...)):
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
     return shop
+
 
 @router.post("/")
 async def create_shop(shop_data: ShopCreate, x_clerk_user_id: str = Header(...)):
@@ -28,14 +32,17 @@ async def create_shop(shop_data: ShopCreate, x_clerk_user_id: str = Header(...))
         "name": shop_data.name,
         "address": shop_data.address,
         "phone_display": shop_data.phone_display,
-        "services": shop_data.services or {},
+        "services": shop_data.services or [],
+        "declined_services": shop_data.declined_services or [],
         "business_hours": shop_data.business_hours or {},
         "greeting": shop_data.greeting or f"Thank you for calling {shop_data.name}!",
     }).execute()
     shop = r.data[0]
     try:
         phone = twilio_service.provision_phone_number()
-        agent_id, llm_id = retell_service.create_agent(shop, f"{settings.app_url}/webhooks/retell")
+        agent_data = retell_service.create_agent(shop)
+        agent_id = agent_data.get("agent_id")
+        llm_id = agent_data.get("response_engine", {}).get("llm_id")
         try:
             retell_service.import_twilio_number(phone, agent_id)
         except Exception as import_err:
@@ -51,6 +58,7 @@ async def create_shop(shop_data: ShopCreate, x_clerk_user_id: str = Header(...))
     except Exception as e:
         logger.error(f"Failed to provision phone/agent for shop {shop['id']}: {e}")
     return shop
+
 
 @router.patch("/me")
 async def update_shop(shop_data: ShopUpdate, x_clerk_user_id: str = Header(...)):
@@ -69,39 +77,33 @@ async def update_shop(shop_data: ShopUpdate, x_clerk_user_id: str = Header(...))
             pass
     return updated
 
+
 @router.post("/me/provision")
 async def provision_shop(x_clerk_user_id: str = Header(...)):
     """Provision Retell agent and phone number for an existing shop that failed initial setup."""
     shop = get_shop_by_owner(x_clerk_user_id)
     if not shop:
         raise HTTPException(status_code=404, detail="Shop not found")
-
     if shop.get("retell_agent_id") and shop.get("phone_number"):
         return {
             "status": "already_provisioned",
             "phone_number": shop["phone_number"],
             "agent_id": shop["retell_agent_id"],
         }
-
     try:
-        # Provision a Twilio phone number if the shop doesn't have one yet
         if not shop.get("phone_number"):
             phone = twilio_service.provision_phone_number()
         else:
             phone = shop["phone_number"]
 
-        # Create Retell LLM + agent if not already done
         if not shop.get("retell_agent_id"):
-            agent_id, llm_id = retell_service.create_agent(
-                shop, f"{settings.app_url}/webhooks/retell"
-            )
+            agent_data = retell_service.create_agent(shop)
+            agent_id = agent_data.get("agent_id")
+            llm_id = agent_data.get("response_engine", {}).get("llm_id")
         else:
             agent_id = shop["retell_agent_id"]
             llm_id = shop.get("retell_llm_id")
 
-        # Link phone number to the Retell agent.
-        # Try Retell's import first (requires Twilio credentials configured in Retell settings).
-        # Fall back to setting the Twilio voice webhook directly to Retell's inbound URL.
         try:
             retell_service.import_twilio_number(phone, agent_id)
         except Exception as import_err:
@@ -109,7 +111,6 @@ async def provision_shop(x_clerk_user_id: str = Header(...)):
             retell_webhook_url = f"https://api.retellai.com/twilio-voice-webhook/{agent_id}"
             twilio_service.configure_number_for_retell(phone, retell_webhook_url)
 
-        # Persist to DB
         supabase.table("shops").update({
             "phone_number": phone,
             "retell_agent_id": agent_id,
@@ -117,10 +118,10 @@ async def provision_shop(x_clerk_user_id: str = Header(...)):
         }).eq("id", shop["id"]).execute()
 
         return {"status": "provisioned", "phone_number": phone, "agent_id": agent_id}
-
     except Exception as e:
         logger.error(f"Provision failed for shop {shop['id']}: {e}")
         raise HTTPException(status_code=500, detail=f"Provisioning failed: {str(e)}")
+
 
 @router.post("/billing/checkout")
 async def create_checkout(x_clerk_user_id: str = Header(...), x_clerk_user_email: str = Header(...)):
@@ -131,11 +132,13 @@ async def create_checkout(x_clerk_user_id: str = Header(...), x_clerk_user_email
     if not shop.get("stripe_customer_id"):
         supabase.table("shops").update({"stripe_customer_id": cid}).eq("id", shop["id"]).execute()
     url = stripe_service.create_checkout_session(
-        cid, shop["id"],
+        cid,
+        shop["id"],
         f"{settings.app_url}/dashboard?subscribed=true",
         f"{settings.app_url}/dashboard/billing",
     )
     return {"url": url}
+
 
 @router.post("/billing/portal")
 async def billing_portal(x_clerk_user_id: str = Header(...)):
