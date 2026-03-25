@@ -15,7 +15,7 @@ async def get_svix_portal():
     from app.config import settings
     async with httpx.AsyncClient() as client:
         resp = await client.post(
-            "https://api.clerk.com/v1/webhooks_svix_url",
+            "https://api.clerk.co/v1/webhooks/svix_url",
             headers={
                 "Authorization": f"Bearer {settings.clerk_secret_key}",
                 "Content-Type": "application/json"
