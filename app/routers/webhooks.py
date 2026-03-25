@@ -169,9 +169,14 @@ async def clerk_webhook(request: Request):
         if email_addresses:
             email = email_addresses[0].get("email_address", "")
         if clerk_user_id:
-            supabase.table("shops").upsert(
-                {"clerk_user_id": clerk_user_id, "email": email, "name": email},
-                on_conflict="clerk_user_id"
-            ).execute()
+            if event_type == "user.created":
+                supabase.table("shops").upsert(
+                    {"clerk_user_id": clerk_user_id, "email": email, "name": email},
+                    on_conflict="clerk_user_id"
+                ).execute()
+            else:
+                supabase.table("shops").update(
+                    {"email": email}
+                ).eq("clerk_user_id", clerk_user_id).execute()
             logger.info(f"Upserted shop for clerk_user_id={clerk_user_id}")
     return {"status": "ok"}
