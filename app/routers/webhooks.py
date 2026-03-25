@@ -81,8 +81,7 @@ def _handle_call_ended(call_data):
     shop = call_record.get("shops", {})
     call_id = call_record["id"]
     transcript_str = "".join(
-        f"{e.get('role', '').capitalize()}: {e.get('content','')}
-"
+        f"{e.get('role', '').capitalize()}: {e.get('content','')} "
         for e in call_data.get("transcript_object", [])
     )
     duration = int(
