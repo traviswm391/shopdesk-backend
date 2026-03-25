@@ -29,7 +29,8 @@ async def create_shop(shop_data: ShopCreate, x_clerk_user_id: str = Header(...))
         retell_service.import_twilio_number(phone, agent_id)
         supabase.table("shops").update({"phone_number": phone, "retell_agent_id": agent_id, "retell_llm_id": llm_id}).eq("id", shop["id"]).execute()
         shop.update({"phone_number": phone, "retell_agent_id": agent_id})
-    except Exception as e: pass
+    except Exception as e:
+        logger.error(f"Failed to provision phone/agent for shop {shop['id']}: {e}")
     return shop
 
 @router.patch("/me")
