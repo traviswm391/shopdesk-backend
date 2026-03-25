@@ -1,49 +1,3 @@
-import requests
-from app.config import settings
-import logging
-
-logger = logging.getLogger(__name__)
-RETELL_BASE_URL = "https://api.retellai.com"
-HEADERS = {"Authorization": f"Bearer {settings.retell_api_key}", "Content-Type": "application/json"}
-
-def build_agent_prompt(shop):
-    shop_name = shop.get("name", "the shop")
-    address = shop.get("address", "")
-    services = shop.get("services", [])
-    greeting = shop.get("greeting", f"Thank you for calling {shop_name}!")
-    hours = shop.get("business_hours", {})
-    services_str = ", ".join(services) if services else "general auto repair and maintenance"
-    hours_lines = []
-    for day in ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]:
-        h = hours.get(day, {})
-        if h.get("closed"):
-            hours_lines.append(f"{day.capitalize()}: Closed")
-        else:
-            hours_lines.append(f"{day.capitalize()}: {h.get('open','8:00 AM')} - {h.get('close','5:00 PM')}")
-    hours_str = "\n".join(hours_lines)
-    return f"""You are the AI receptionist for {shop_name}{", located at " + address if address else ""}. You answer calls professionally, help customers book appointments, and answer common questions about auto repair services. You speak naturally — this is a phone call, so keep responses brief and conversational.
-
-Greeting: Start every call with: "{greeting}"
-
-YOUR GOALS:
-1. Greet the caller and understand why they are calling
-2. Walk them through the appointment booking flow below
-3. Answer common questions about services and pricing honestly
-4. Handle after-hours calls gracefully
-
-APPOINTMENT BOOKING FLOW — collect in this order:
-Step 1 – Vehicle: Ask for the year, make, and model (e.g. "2019 Toyota Camry")
-Step 2 – Issue or service: Ask what they need or what they're experiencing (e.g. oil change, brakes squeaking, check engine light on)
-Step 3 – Contact info: Ask for their name and best callback phone number
-Step 4 – Preferred time: Ask for their preferred drop-off date and time
-Step 5 – Confirm: Read back all details and let them know a text confirmation is coming
-
-SERVICES OFFERED:
-{services_str}
-
-COMMON SERVICES & TYPICAL PRICE RANGES (always clarify exact pricing requires a tech inspection):
-• Oil change (conventional): $35–$55 | Full synthetic: $65–$95
-• Brake pad replacement (per axle): $150–$300
 • Brake rotor replacement (per axle): $250–$450
 • Tire rotation: $20–$50
 • Battery replacement: $100–$200 parts and labor
@@ -79,7 +33,7 @@ def create_agent(shop, webhook_url):
         raise Exception(f"Retell LLM error: {llm_resp.text}")
     llm_id = llm_resp.json()["llm_id"]
     agent_payload = {"agent_name": f"{shop['name']} AI Receptionist", "voice_id": "11labs-Adrian", "response_engine": {"type": "retell-llm", "llm_id": llm_id}, "webhook_url": webhook_url, "language": "en-US"}
-    agent_resp = requests.post(f"{RETELL_BASE_URL}/create-agent", headers=HEADERS, json=agent_payload)
+    agent_resp = requests.post(f"{RETELL_BASE_UR}/create-agent", headers=HEADERS, json=agent_payload)
     if agent_resp.status_code not in (200, 201):
         raise Exception(f"Retell agent error: {agent_resp.text}")
     return agent_resp.json()["agent_id"], llm_id
@@ -95,8 +49,22 @@ def update_agent(agent_id, shop):
 def delete_agent(agent_id):
     requests.delete(f"{RETELL_BASE_URL}/delete-agent/{agent_id}", headers=HEADERS)
 
-def import_twilio_number(phone_number, retell_agent_id):
-    payload = {"phone_number": phone_number, "inbound_agent_id": retell_agent_id}
-    resp = requests.post(f"{RETELL_BASE_URL}/create-phone-number", headers=HEADERS, json=payload)
+def import_twilio_number(phone_number: str, retell_agent_id: str):
+    """Import an existing Twilio number into Retell AI and link it to an agent."""
+    payload = {
+        "phone_number": phone_number,
+        "twilio_account_sid": settings.twilio_account_sid,
+        "twilio_auth_token": settings.twilio_auth_token,
+        "inbound_agent_id": retell_agent_id,
+        "termination_uri": f"{settings.twilio_account_sid}.pstn.twilio.com"
+    }
+
+    resp = requests.post(
+        f"{RETELL_BASE_URL}/import-phone-number",
+        headers=HEADERS,
+        json=payload
+    )
+
     if resp.status_code not in (200, 201):
-        raise Exception(f"Retell phone error: {resp.text}")
+        logger.error(f"Failed to import number to Retell: {resp.text}")
+        raise Exception(f"Retell phone import failed: {resp.text}")
