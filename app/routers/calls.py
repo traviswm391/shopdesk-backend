@@ -9,7 +9,6 @@ def get_shop_by_owner(owner_id):
     r = supabase.table("shops").select("id").eq("clerk_user_id", owner_id).execute()
     return r.data[0] if r.data else None
 
-
 @router.post("/inbound")
 async def inbound_call(request: Request):
     form_data = await request.form()
@@ -33,14 +32,13 @@ async def inbound_call(request: Request):
     call_data = resp.json()
     call_id = call_data["call_id"]
 
-    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+    twiml = f'''<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-  <Connect>
-    <Stream url="wss://api.retellai.com/audio-websocket/{call_id}" />
-  </Connect>
-</Response>"""
+  <Dial>
+    <Sip>sip:{call_id}@sip.retellai.com</Sip>
+  </Dial>
+</Response>'''
     return Response(content=twiml, media_type="application/xml")
-
 
 @router.get("/")
 async def list_calls(x_clerk_user_id: str = Header(...), limit: int = Query(50,le=200), offset: int = Query(0)):
