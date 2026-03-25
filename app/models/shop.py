@@ -10,8 +10,9 @@ class BusinessHours(BaseModel):
 class ShopCreate(BaseModel):
     name: str
     address: Optional[str] = None
-    phone_display: Optional[str] = None  # shop's existing public phone (not Twilio)
+    phone_display: Optional[str] = None
     services: Optional[list[str]] = None
+    declined_services: Optional[list[str]] = None
     business_hours: Optional[dict] = None
     greeting: Optional[str] = None
 
@@ -20,6 +21,7 @@ class ShopUpdate(BaseModel):
     address: Optional[str] = None
     phone_display: Optional[str] = None
     services: Optional[list[str]] = None
+    declined_services: Optional[list[str]] = None
     business_hours: Optional[dict] = None
     greeting: Optional[str] = None
 
@@ -32,6 +34,7 @@ class Shop(BaseModel):
     address: Optional[str] = None
     phone_display: Optional[str] = None
     services: Optional[list[str]] = None
+    declined_services: Optional[list[str]] = None
     business_hours: Optional[dict] = None
     greeting: Optional[str] = None
     stripe_customer_id: Optional[str] = None
