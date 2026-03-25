@@ -10,154 +10,151 @@ HEADERS = {
     "Content-Type": "application/json"
 }
 
-
 def build_agent_prompt(shop: dict) -> str:
-    """Build a system prompt for the Retell AI agent based on shop config."""
     shop_name = shop.get("name", "the shop")
     address = shop.get("address", "")
     services = shop.get("services", [])
-    greeting = shop.get("greeting", f"Thank you for calling {shop_name}!")
+    declined_services = shop.get("declined_services", [])
+    greeting = shop.get("greeting", f"Thanks for calling {shop_name}, what can we do for you?")
     hours = shop.get("business_hours", {})
-
     services_str = ", ".join(services) if services else "general auto repair and maintenance"
-
     hours_str = ""
-    days = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+    days = ["monday","tuesday","wednesday","thursday","friday","saturday","sunday"]
     for day in days:
         h = hours.get(day, {})
         if h.get("closed"):
             hours_str += f"{day.capitalize()}: Closed\n"
         else:
             hours_str += f"{day.capitalize()}: {h.get('open', '8:00 AM')} - {h.get('close', '5:00 PM')}\n"
+    declined_str = ""
+    if declined_services:
+        declined_list = ", ".join(declined_services)
+        declined_str = f"\nServices this shop does NOT perform (declined jobs):\n{declined_list}\n\nIf a caller asks about any of these services, be straight with them — let them know that's not something the shop handles, and suggest they contact a specialist. Don't book appointments for declined services under any circumstances.\n"
+    return f"""You are the AI receptionist for {shop_name}, an auto shop{"located at " + address if address else ""}.
 
-    return f"""You are the AI receptionist for {shop_name}, an auto mechanic shop{"located at " + address if address else ""}.
+Your personality: confident, direct, and no-nonsense. You sound like a knowledgeable guy who knows the automotive business inside and out. You're friendly but get straight to the point — no fluff. You instill confidence that the shop knows what they're doing.
 
-Your job is to:
-1. Greet callers warmly
-2. Understand what service they need
-3. Collect their information to book an appointment:
+Your job:
+1. Answer with the opening greeting
+2. Find out what the caller needs
+3. Book an appointment by getting:
    - Full name
-   - Best callback phone number
+   - Best callback number
    - Vehicle make, model, and year
-   - Service or repair needed
-   - Preferred date and time
-4. Confirm the appointment details back to the customer
-5. Let them know the shop will send them a text confirmation
-
+   - What service or repair they need
+   - Preferred day and time
+4. Repeat the details back to confirm
+5. Let them know the shop will fire off a text confirmation
+{declined_str}
 Business hours:
 {hours_str}
-Services offered: {services_str}
+Services we handle: {services_str}
 
-Important rules:
-- Be friendly, professional, and concise
-- If asked about pricing, say prices vary by job and the team will provide a quote
-- If someone calls after hours, take their info and tell them the shop will call back next business day
-- Always confirm you have the right phone number before ending the call
-- Do NOT make up availability — tell them "we'll confirm the exact time shortly"
+Ground rules:
+- Keep it tight — confident and professional, no over-explaining
+- On pricing: tell them it depends on the job and the guys will give them a solid quote
+- After hours calls: grab their info and let them know someone will get back to them first thing next business day
+- Always double-check the phone number before you wrap up
+- Don't commit to specific times — say "we'll lock in the exact slot and confirm with you"
+- If someone's rude or aggressive, stay calm and professional — don't match their energy
 
-Start every call with: "{greeting}"
+Open every call with: "{greeting}"
 """
 
 
-def create_agent(shop: dict, webhook_url: str) -> str:
-    """Create a Retell AI agent for a shop. Returns the agent_id."""
+def create_agent(shop: dict) -> dict:
     prompt = build_agent_prompt(shop)
-
+    payload = {
+        "response_engine": {
+            "type": "retell-llm",
+            "llm_id": None
+        },
+        "voice_id": "11labs-Adrian",
+        "agent_name": shop.get("name", "AI Receptionist"),
+    }
+    # First create the LLM
     llm_payload = {
         "model": "gpt-4o",
         "general_prompt": prompt,
-        "general_tools": [],
-        "starting_state": "introduction",
-        "states": [
+        "begin_message": shop.get("greeting", f"Thanks for calling {shop.get('name', 'the shop')}, what can we do for you?"),
+        "general_tools": [
             {
-                "name": "introduction",
-                "state_prompt": prompt,
-                "edges": []
+                "type": "end_call",
+                "name": "end_call",
+                "description": "End the call after appointment is booked and confirmed or caller says goodbye."
             }
         ]
     }
-
     llm_resp = requests.post(
         f"{RETELL_BASE_URL}/create-retell-llm",
         headers=HEADERS,
         json=llm_payload
     )
+    llm_resp.raise_for_status()
+    llm_data = llm_resp.json()
+    llm_id = llm_data["llm_id"]
 
-    if llm_resp.status_code not in (200, 201):
-        logger.error(f"Failed to create Retell LLM: {llm_resp.text}")
-        raise Exception(f"Retell LLM creation failed: {llm_resp.text}")
-
-    llm_id = llm_resp.json()["llm_id"]
-
-    agent_payload = {
-        "agent_name": f"{shop['name']} AI Receptionist",
-        "voice_id": "11labs-Adrian",
-        "response_engine": {
-            "type": "retell-llm",
-            "llm_id": llm_id
-        },
-        "webhook_url": webhook_url,
-        "enable_backchannel": True,
-        "ambient_sound": "coffee-shop",
-        "language": "en-US",
-        "opt_out_sensitive_data_storage": False
-    }
-
+    payload["response_engine"]["llm_id"] = llm_id
     agent_resp = requests.post(
         f"{RETELL_BASE_URL}/create-agent",
         headers=HEADERS,
-        json=agent_payload
+        json=payload
     )
-
-    if agent_resp.status_code not in (200, 201):
-        logger.error(f"Failed to create Retell agent: {agent_resp.text}")
-        raise Exception(f"Retell agent creation failed: {agent_resp.text}")
-
-    return agent_resp.json()["agent_id"], llm_id
+    agent_resp.raise_for_status()
+    return agent_resp.json()
 
 
-def update_agent(agent_id: str, shop: dict):
-    """Update an existing agent's prompt when shop settings change."""
+def update_agent(agent_id: str, shop: dict) -> dict:
     prompt = build_agent_prompt(shop)
-
-    agent_resp = requests.get(
+    # Get the agent to find the llm_id
+    get_resp = requests.get(
         f"{RETELL_BASE_URL}/get-agent/{agent_id}",
         headers=HEADERS
     )
-    if agent_resp.status_code != 200:
-        raise Exception(f"Could not fetch agent {agent_id}")
-
-    llm_id = agent_resp.json().get("response_engine", {}).get("llm_id")
+    get_resp.raise_for_status()
+    agent_data = get_resp.json()
+    llm_id = agent_data.get("response_engine", {}).get("llm_id")
 
     if llm_id:
+        llm_payload = {
+            "general_prompt": prompt,
+            "begin_message": shop.get("greeting", f"Thanks for calling {shop.get('name', 'the shop')}, what can we do for you?"),
+        }
         requests.patch(
             f"{RETELL_BASE_URL}/update-retell-llm/{llm_id}",
             headers=HEADERS,
-            json={"general_prompt": prompt}
+            json=llm_payload
         )
 
+    agent_payload = {
+        "agent_name": shop.get("name", "AI Receptionist"),
+    }
+    resp = requests.patch(
+        f"{RETELL_BASE_URL}/update-agent/{agent_id}",
+        headers=HEADERS,
+        json=agent_payload
+    )
+    resp.raise_for_status()
+    return resp.json()
 
-def delete_agent(agent_id: str):
-    """Delete a Retell AI agent."""
-    requests.delete(f"{RETELL_BASE_URL}/delete-agent/{agent_id}", headers=HEADERS)
+
+def delete_agent(agent_id: str) -> None:
+    requests.delete(
+        f"{RETELL_BASE_URL}/delete-agent/{agent_id}",
+        headers=HEADERS
+    )
 
 
-def import_twilio_number(phone_number: str, retell_agent_id: str):
-    """Import an existing Twilio number into Retell AI and link it to an agent."""
+def import_twilio_number(phone_number: str, agent_id: str) -> dict:
     payload = {
         "phone_number": phone_number,
-        "twilio_account_sid": settings.twilio_account_sid,
-        "twilio_auth_token": settings.twilio_auth_token,
-        "inbound_agent_id": retell_agent_id,
-        "termination_uri": f"{settings.twilio_account_sid}.pstn.twilio.com"
+        "termination_uri": None,
+        "inbound_agent_id": agent_id,
     }
-
     resp = requests.post(
         f"{RETELL_BASE_URL}/import-phone-number",
         headers=HEADERS,
         json=payload
     )
-
-    if resp.status_code not in (200, 201):
-        logger.error(f"Failed to import number to Retell: {resp.text}")
-        raise Exception(f"Retell phone import failed: {resp.text}")
+    resp.raise_for_status()
+    return resp.json()
