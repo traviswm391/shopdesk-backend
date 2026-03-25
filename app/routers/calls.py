@@ -1,11 +1,46 @@
-from fastapi import APIRouter, HTTPException, Header, Query
+import httpx
+from fastapi import APIRouter, HTTPException, Header, Query, Request, Response
 from app.database import supabase
+from app.config import settings
 
 router = APIRouter(prefix="/api/calls", tags=["calls"])
 
 def get_shop_by_owner(owner_id):
     r = supabase.table("shops").select("id").eq("clerk_user_id", owner_id).execute()
     return r.data[0] if r.data else None
+
+
+@router.post("/inbound")
+async def inbound_call(request: Request):
+    form_data = await request.form()
+    from_number = form_data.get("From", "")
+    to_number = form_data.get("To", "")
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            "https://api.retellai.com/v2/register-phone-call",
+            headers={
+                "Authorization": f"Bearer {settings.retell_api_key}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "agent_id": "agent_e9da1f0338818d262f562612a9",
+                "from_number": from_number,
+                "to_number": to_number,
+            },
+        )
+
+    call_data = resp.json()
+    call_id = call_data["call_id"]
+
+    twiml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+  <Connect>
+    <Stream url="wss://api.retellai.com/audio-websocket/{call_id}" />
+  </Connect>
+</Response>"""
+    return Response(content=twiml, media_type="application/xml")
+
 
 @router.get("/")
 async def list_calls(x_clerk_user_id: str = Header(...), limit: int = Query(50,le=200), offset: int = Query(0)):
