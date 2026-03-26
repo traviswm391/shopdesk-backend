@@ -11,7 +11,7 @@ DEFAULT_VOICE_ID = "pNInz6obpgDQGcFmaJgB"
 
 
 def get_headers():
-    return {
+    return 
         "xi-api-key": settings.elevenlabs_api_key,
         "Content-Type": "application/json"
     }
@@ -92,7 +92,7 @@ def create_agent(shop: dict) -> dict:
             },
             "tts": {
                 "voice_id": DEFAULT_VOICE_ID,
-                "model_id": "eleven_turbo_v2_5",
+                "model_id": "eleven_turbo_v2",
                 "agent_output_audio_format": "ulaw_8000"
             },
             "stt": {
