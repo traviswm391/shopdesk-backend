@@ -6,8 +6,8 @@ logger = logging.getLogger(__name__)
 
 ELEVENLABS_BASE_URL = "https://api.elevenlabs.io/v1"
 
-# Titan - Deep, Bold, and Powerful male voice (ElevenLabs v3 conversational)
-DEFAULT_VOICE_ID = "dtSEyYGNJqjrtBArPCVZ"
+# Jon - Natural Authority, calm conversational American male voice
+DEFAULT_VOICE_ID = "sB7vwSCyX0tQmU24cW2C"
 
 
 def get_headers():
