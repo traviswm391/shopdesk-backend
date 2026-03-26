@@ -11,3 +11,5 @@ python-dotenv==1.0.1
 python-multipart==0.0.20
 httpx==0.28.1
 svix==1.24.0
+PyJWT==2.8.0
+cryptography==42.0.8
