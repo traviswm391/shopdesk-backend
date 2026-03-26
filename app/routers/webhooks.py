@@ -31,22 +31,135 @@ async def get_svix_portal():
         return RedirectResponse(url=url)
 
 
+# ---------------------------------------------------------------------------
+# ElevenLabs webhook — handles post-call transcription events
+# ---------------------------------------------------------------------------
+
+@router.post("/elevenlabs")
+async def elevenlabs_webhook(request: Request, background_tasks: BackgroundTasks):
+    try:
+        payload = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON")
+
+    event_type = payload.get("type")
+
+    if event_type == "post_call_transcription":
+        background_tasks.add_task(_handle_elevenlabs_call_ended, payload.get("data", {}))
+
+    return {"status": "ok"}
+
+
+def _handle_elevenlabs_call_ended(data: dict):
+    """Process ElevenLabs post-call data: save transcript, extract appointment, send SMS."""
+    conversation_id = data.get("conversation_id")
+    agent_id = data.get("agent_id")
+
+    if not conversation_id:
+        return
+
+    # Find shop by ElevenLabs agent_id (stored in retell_agent_id column)
+    shop_result = supabase.table("shops").select("*").eq("retell_agent_id", agent_id).execute()
+    if not shop_result.data:
+        logger.warning(f"No shop found for ElevenLabs agent_id {agent_id}")
+        return
+
+    shop = shop_result.data[0]
+
+    # Build transcript string from ElevenLabs format
+    transcript_items = data.get("transcript", [])
+    transcript_str = ""
+    for item in transcript_items:
+        role = item.get("role", "unknown").capitalize()
+        message = item.get("message", "")
+        transcript_str += f"{role}: {message}\n"
+
+    metadata = data.get("metadata", {})
+    duration = metadata.get("call_duration_secs", 0)
+    phone_meta = metadata.get("phone_call", {})
+    caller_number = phone_meta.get("phone_number_from", "")
+
+    # Check if call record already exists (from call_started if we add that later)
+    existing = supabase.table("calls").select("id").eq("retell_call_id", conversation_id).execute()
+
+    if existing.data:
+        call_id = existing.data[0]["id"]
+        supabase.table("calls").update({
+            "status": "completed",
+            "transcript": transcript_str,
+            "duration_seconds": duration,
+        }).eq("id", call_id).execute()
+    else:
+        r = supabase.table("calls").insert({
+            "shop_id": shop["id"],
+            "retell_call_id": conversation_id,
+            "caller_number": caller_number,
+            "status": "completed",
+            "transcript": transcript_str,
+            "duration_seconds": duration,
+        }).execute()
+        call_id = r.data[0]["id"]
+
+    if not transcript_str.strip():
+        return
+
+    try:
+        ext = openai_service.extract_appointment_from_transcript(transcript_str, shop.get("name", "shop"))
+        supabase.table("calls").update({
+            "summary": ext.get("summary"),
+            "appointment_booked": ext.get("appointment_booked", False)
+        }).eq("id", call_id).execute()
+
+        if ext.get("appointment_booked"):
+            supabase.table("appointments").insert({
+                "shop_id": shop["id"],
+                "call_id": call_id,
+                "customer_name": ext.get("customer_name"),
+                "customer_phone": ext.get("customer_phone") or caller_number,
+                "vehicle_info": ext.get("vehicle_info"),
+                "service_requested": ext.get("service_requested"),
+                "preferred_date": ext.get("preferred_date"),
+                "preferred_time": ext.get("preferred_time"),
+                "status": "pending"
+            }).execute()
+
+            sms_to = ext.get("customer_phone") or caller_number
+            if sms_to:
+                try:
+                    msg = (
+                        f"Hi {ext.get('customer_name', 'there')}! Your appointment at "
+                        f"{shop.get('name', 'the shop')} has been requested for "
+                        f"{ext.get('preferred_date', 'your preferred date')} at "
+                        f"{ext.get('preferred_time', 'your preferred time')}. "
+                        f"The team will confirm shortly!"
+                    )
+                    twilio_service.send_sms(shop.get("phone_number"), sms_to, msg)
+                except Exception as sms_err:
+                    logger.warning(f"SMS send failed: {sms_err}")
+    except Exception as e:
+        logger.error(f"Failed to process ElevenLabs call {conversation_id}: {e}")
+
+
+# ---------------------------------------------------------------------------
+# Retell webhook (kept for backward compatibility)
+# ---------------------------------------------------------------------------
+
 @router.post("/retell")
 async def retell_webhook(request: Request, background_tasks: BackgroundTasks):
     try:
         payload = await request.json()
-    except:
+    except Exception:
         raise HTTPException(status_code=400, detail="Invalid JSON")
     event = payload.get("event")
     call_data = payload.get("call", {})
     if event == "call_started":
-        _handle_call_started(call_data)
+        _handle_retell_call_started(call_data)
     elif event == "call_ended":
-        background_tasks.add_task(_handle_call_ended, call_data)
+        background_tasks.add_task(_handle_retell_call_ended, call_data)
     return {"status": "ok"}
 
 
-def _handle_call_started(call_data):
+def _handle_retell_call_started(call_data):
     retell_call_id = call_data.get("call_id")
     agent_id = call_data.get("agent_id")
     shop_result = supabase.table("shops").select("id").eq("retell_agent_id", agent_id).execute()
@@ -60,7 +173,7 @@ def _handle_call_started(call_data):
     }).execute()
 
 
-def _handle_call_ended(call_data):
+def _handle_retell_call_ended(call_data):
     retell_call_id = call_data.get("call_id")
     agent_id = call_data.get("agent_id")
     call_result = supabase.table("calls").select("*, shops(*)").eq("retell_call_id", retell_call_id).execute()
@@ -79,15 +192,15 @@ def _handle_call_ended(call_data):
         }).execute()
         call_record = r.data[0]
         call_record["shops"] = shop
-    shop = call_record.get("shops", {})
+
     call_id = call_record["id"]
-    transcript_str = "".join(
-        f"{e.get('role', '').capitalize()}: {e.get('content','')} "
-        for e in call_data.get("transcript_object", [])
+    shop = call_record.get("shops") or {}
+    transcript_items = call_data.get("transcript", [])
+    transcript_str = "\n".join(
+        f"{item.get('role','').capitalize()}: {item.get('content','')}"
+        for item in transcript_items
     )
-    duration = int(
-        (call_data.get("end_timestamp", 0) - call_data.get("start_timestamp", 0)) / 1000
-    ) if call_data.get("end_timestamp") else None
+    duration = call_data.get("duration_ms", 0) // 1000
     supabase.table("calls").update({
         "status": "completed",
         "transcript": transcript_str,
@@ -110,19 +223,26 @@ def _handle_call_ended(call_data):
                 "vehicle_info": ext.get("vehicle_info"),
                 "service_requested": ext.get("service_requested"),
                 "preferred_date": ext.get("preferred_date"),
-                "preferred_time": ext.get("preferred_time")
+                "preferred_time": ext.get("preferred_time"),
+                "status": "pending"
             }).execute()
-            cph = ext.get("customer_phone") or call_data.get("from_number")
-            sph = shop.get("phone_number")
-            if cph and sph:
+            sms_to = ext.get("customer_phone") or call_data.get("from_number")
+            if sms_to:
                 try:
-                    body = openai_service.generate_sms_confirmation(ext, shop.get("name"), shop.get("phone_display") or sph)
-                    twilio_service.send_sms(to=cph, from_=sph, body=body)
-                except Exception as e:
+                    msg = (
+                        f"Hi {ext.get('customer_name', 'there')}! Your appointment at "
+                        f"{shop.get('name', 'the shop')} has been requested. The team will confirm shortly!"
+                    )
+                    twilio_service.send_sms(shop.get("phone_number"), sms_to, msg)
+                except Exception:
                     pass
-    except Exception as e:
+    except Exception:
         pass
 
+
+# ---------------------------------------------------------------------------
+# Stripe webhook
+# ---------------------------------------------------------------------------
 
 @router.post("/stripe")
 async def stripe_webhook(request: Request):
@@ -145,38 +265,5 @@ async def stripe_webhook(request: Request):
     elif t == "customer.subscription.deleted":
         supabase.table("shops").update({"subscription_status": "cancelled"}).eq("stripe_subscription_id", d.get("id")).execute()
     elif t == "customer.subscription.updated":
-        supabase.table("shops").update({"subscription_status": d.get("status")}).eq("stripe_subscription_id", d.get("id")).execute()
-    return {"status": "ok"}
-
-
-@router.post("/clerk")
-async def clerk_webhook(request: Request):
-    from svix.webhooks import Webhook, WebhookVerificationError
-    from app.config import settings
-    payload = await request.body()
-    headers = dict(request.headers)
-    try:
-        wh = Webhook(settings.clerk_webhook_secret)
-        evt = wh.verify(payload, headers)
-    except WebhookVerificationError:
-        raise HTTPException(status_code=400, detail="Invalid webhook signature")
-    event_type = evt.get("type")
-    data = evt.get("data", {})
-    if event_type in ("user.created", "user.updated"):
-        clerk_user_id = data.get("id")
-        email = ""
-        email_addresses = data.get("email_addresses", [])
-        if email_addresses:
-            email = email_addresses[0].get("email_address", "")
-        if clerk_user_id:
-            if event_type == "user.created":
-                supabase.table("shops").upsert(
-                    {"clerk_user_id": clerk_user_id, "email": email, "name": email},
-                    on_conflict="clerk_user_id"
-                ).execute()
-            else:
-                supabase.table("shops").update(
-                    {"email": email}
-                ).eq("clerk_user_id", clerk_user_id).execute()
-            logger.info(f"Upserted shop for clerk_user_id={clerk_user_id}")
+        supabase.table("shops").update({"subscription_status": d.get("status", "active")}).eq("stripe_subscription_id", d.get("id")).execute()
     return {"status": "ok"}
