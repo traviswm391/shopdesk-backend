@@ -11,7 +11,7 @@ DEFAULT_VOICE_ID = "sB7vwSCyX0tQmU24cW2C"
 
 
 def get_headers():
-    return 
+    return {
         "xi-api-key": settings.elevenlabs_api_key,
         "Content-Type": "application/json"
     }
@@ -63,97 +63,52 @@ Business hours:
 Services we handle: {services_str}
 
 Ground rules:
-- Keep it tight — confident and professional, no over-explaining
-- On pricing: tell them it depends on the job and the guys will give them a solid quote
+- Ask ONE question at a time. Wait for the caller to answer before asking the next question. Never stack multiple questions in one response.
+- Keep it tight -- confident and professional, no over-explaining
+- On pricing: tell them it depends on the job and the guys will give them a solid quote when they come in
 - After booking, wrap up the call professionally
 - Never make up information you don't have
 - If they ask something outside your scope, let them know the team will follow up"""
 
 
 def create_agent(shop: dict) -> dict:
-    """Create a new ElevenLabs Conversational AI agent for the shop."""
     prompt = build_agent_prompt(shop)
     greeting = shop.get("greeting", f"Thanks for calling {shop.get('name', 'the shop')}, what can we do for you?")
-
     webhook_url = f"{settings.backend_url}/webhooks/elevenlabs"
-
     payload = {
         "name": shop.get("name", "AI Receptionist"),
         "conversation_config": {
             "agent": {
-                "prompt": {
-                    "prompt": prompt,
-                    "llm": "gpt-4o-mini",
-                    "temperature": 0.5,
-                    "max_tokens": 200
-                },
+                "prompt": {"prompt": prompt, "llm": "gpt-4o-mini", "temperature": 0.5, "max_tokens": 200},
                 "first_message": greeting,
                 "language": "en"
             },
-            "tts": {
-                "voice_id": DEFAULT_VOICE_ID,
-                "model_id": "eleven_turbo_v2",
-                "agent_output_audio_format": "ulaw_8000"
-            },
-            "stt": {
-                "provider": "deepgram",
-                "model": "nova-2-phonecall"
-            },
-            "conversation": {
-                "max_duration_seconds": 600
-            }
+            "tts": {"voice_id": DEFAULT_VOICE_ID, "model_id": "eleven_v3_conversational", "agent_output_audio_format": "ulaw_8000"},
+            "stt": {"provider": "deepgram", "model": "nova-2-phonecall"},
+            "conversation": {"max_duration_seconds": 600}
         },
-        "platform_settings": {
-            "webhook": {
-                "url": webhook_url
-            }
-        }
+        "platform_settings": {"webhook": {"url": webhook_url}}
     }
-
-    resp = requests.post(
-        f"{ELEVENLABS_BASE_URL}/convai/agents/create",
-        headers=get_headers(),
-        json=payload
-    )
+    resp = requests.post(f"{ELEVENLABS_BASE_URL}/convai/agents/create", headers=get_headers(), json=payload)
     resp.raise_for_status()
     return resp.json()
 
 
 def update_agent(agent_id: str, shop: dict) -> dict:
-    """Update an existing ElevenLabs agent's prompt and greeting."""
     prompt = build_agent_prompt(shop)
     greeting = shop.get("greeting", f"Thanks for calling {shop.get('name', 'the shop')}, what can we do for you?")
-
     payload = {
         "name": shop.get("name", "AI Receptionist"),
-        "conversation_config": {
-            "agent": {
-                "prompt": {
-                    "prompt": prompt,
-                    "max_tokens": 200
-                },
-                "first_message": greeting
-            }
-        }
+        "conversation_config": {"agent": {"prompt": {"prompt": prompt, "max_tokens": 200}, "first_message": greeting}}
     }
-
-    resp = requests.patch(
-        f"{ELEVENLABS_BASE_URL}/convai/agents/{agent_id}",
-        headers=get_headers(),
-        json=payload
-    )
+    resp = requests.patch(f"{ELEVENLABS_BASE_URL}/convai/agents/{agent_id}", headers=get_headers(), json=payload)
     resp.raise_for_status()
     return resp.json()
 
 
 def delete_agent(agent_id: str) -> None:
-    """Delete an ElevenLabs agent."""
-    requests.delete(
-        f"{ELEVENLABS_BASE_URL}/convai/agents/{agent_id}",
-        headers=get_headers()
-    )
+    requests.delete(f"{ELEVENLABS_BASE_URL}/convai/agents/{agent_id}", headers=get_headers())
 
 
 def get_twilio_webhook_url(agent_id: str) -> str:
-    """Returns the ElevenLabs Twilio inbound call URL for this agent."""
     return f"{ELEVENLABS_BASE_URL}/convai/twilio/inbound_calls?agent_id={agent_id}"
