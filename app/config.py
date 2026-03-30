@@ -15,8 +15,11 @@ class Settings(BaseSettings):
     stripe_price_id: str = ""
     clerk_secret_key: str = ""
     clerk_webhook_secret: str = ""
-    app_url: str = "https://shopdesk-ai.vercel.app"
+    app_url: str = "https://shopdesk-dashboard.vercel.app"
     backend_url: str = "https://shopdesk-backend-production.up.railway.app"
+    # Email (Resend) â set RESEND_API_KEY in Railway to enable weekly digest emails
+    resend_api_key: str = ""
+    from_email: str = "ShopDesk AI <noreply@shopdesk.ai>"
 
     class Config:
         env_file = ".env"
