@@ -2,10 +2,12 @@ from pydantic import BaseModel
 from typing import Optional
 from datetime import datetime
 
+
 class BusinessHours(BaseModel):
     open: str = "08:00"
     close: str = "17:00"
     closed: bool = False
+
 
 class ShopCreate(BaseModel):
     name: str
@@ -15,6 +17,9 @@ class ShopCreate(BaseModel):
     declined_services: Optional[list[str]] = None
     business_hours: Optional[dict] = None
     greeting: Optional[str] = None
+    location_name: Optional[str] = None        # #13 multi-location
+    notification_phone: Optional[str] = None   # #10/#12 SMS alerts to owner
+
 
 class ShopUpdate(BaseModel):
     name: Optional[str] = None
@@ -24,6 +29,11 @@ class ShopUpdate(BaseModel):
     declined_services: Optional[list[str]] = None
     business_hours: Optional[dict] = None
     greeting: Optional[str] = None
+    tone: Optional[str] = None                 # #14 agent personality
+    agent_active: Optional[bool] = None        # dashboard on/off toggle
+    location_name: Optional[str] = None        # #13 multi-location
+    notification_phone: Optional[str] = None   # #10/#12 SMS alerts to owner
+
 
 class Shop(BaseModel):
     id: str
@@ -37,6 +47,10 @@ class Shop(BaseModel):
     declined_services: Optional[list[str]] = None
     business_hours: Optional[dict] = None
     greeting: Optional[str] = None
+    tone: Optional[str] = None
+    agent_active: Optional[bool] = True
+    location_name: Optional[str] = None
+    notification_phone: Optional[str] = None
     stripe_customer_id: Optional[str] = None
     stripe_subscription_id: Optional[str] = None
     subscription_status: str = "inactive"
